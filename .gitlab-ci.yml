@@ -1,0 +1,56 @@
+image: node:18.14
+
+stages:
+  - install
+  - build
+  - deploy
+
+cache:
+  key: $CI_COMMIT_REF_SLUG
+  paths:
+    - .npm/
+    - node_modules/
+
+install:
+  stage: install
+  script:
+    - npm i -D esbuild
+    - npm install
+  artifacts:
+    paths:
+    - node_modules
+    expire_in: 1 week
+  only:
+    - main
+
+build:
+  stage: build
+  script:
+    - npm run build
+  dependencies:
+    - install
+  artifacts:
+    paths:
+    - dist
+    expire_in: 1 week
+  only:
+    - main
+
+deploy:
+  stage: deploy
+  before_script:
+    - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - chmod 400 "$PROD_SERVER_IDENTITY_FILE"
+    - ssh-add "$PROD_SERVER_IDENTITY_FILE"
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $PROD_SERVER_IP >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  script:
+    - ssh $PROD_SERVER_USERNAME@$PROD_SERVER_IP "cd $PROD_SERVER_PATH; rm -rf ./*;"
+    - scp -r ./dist/* $PROD_SERVER_USERNAME@$PROD_SERVER_IP:$PROD_SERVER_PATH
+  dependencies:
+    - build
+  only:
+    - main
